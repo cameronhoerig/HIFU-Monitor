@@ -63,6 +63,7 @@ volatile char receiveCount = 0; // when doing initial handshaking with computer,
 								// keeps track of the number of bytes received
 volatile char receivingThreshold = 0; // flag to keep track of when the threshold
 									// voltage is being received from computer
+volatile char firstCycle = 1; // flag to tell when the first sonication is done
 
 long upperRmsBound = 0;
 int cycleCount = 0; // counts the number of cycles that have passed without
@@ -109,13 +110,16 @@ void main(void)
 			{
 				allClear = 1;
 				allOn = 0;
-				IEC0bits.SPI1IE = 1; // SPI1 interrupts enabled
-				//while(U1STAbits.TRMT == 0){}
-				//U1TXREG = sendCommand; // let the computer know the next byte is a command
-				//while(U1STAbits.TRMT == 0){}
-				//U1TXREG = voltageOff; // turn function generator off	
-				//while(waitForVoltageConfirm == 1){}		
-				//LATBbits.LATB3 == STOP;	
+				spiIndex = 0;
+				while(U1STAbits.TRMT == 0){}
+				U1TXREG = sendCommand; // let the computer know the next byte is a command
+				while(U1STAbits.TRMT == 0){}
+				U1TXREG = voltageOff; // turn function generator off
+				waitForVoltageConfirm = 1;	
+				while(waitForVoltageConfirm == 1){}		
+				asm("nop");
+				asm("nop");
+				LATBbits.LATB3 == STOP;	
 				cycleCount++;
 				if(cycleCount > 10)
 				{
@@ -161,12 +165,15 @@ void main(void)
 				allClear = 0;
 				allOn = 1;
 				holdIndex = 0;
-				IEC0bits.SPI1IE = 1; // SPI1 interrupts enabled
-				//while(U1STAbits.TRMT == 0){}
-				//U1TXREG = sendCommand; // let the computer know the next byte is a command
-				//while(U1STAbits.TRMT == 0){}
-				//U1TXREG = voltageOn; // turn function generator on
-				//while(waitForVoltageConfirm == 1){}
+				while(U1STAbits.TRMT == 0){}
+				U1TXREG = sendCommand; // let the computer know the next byte is a command
+				while(U1STAbits.TRMT == 0){}
+			    U1TXREG = voltageOn; // turn function generator on
+				waitForVoltageConfirm = 1;
+				while(waitForVoltageConfirm == 1){}
+				asm("nop");
+				asm("nop");
+				LATBbits.LATB3 = START;
 			}
 
 			if(rmsFlag == 1)	
@@ -183,10 +190,10 @@ void main(void)
 					U1TXREG = lowerVoltage; // turn function generator off		
 				}						
 	
-				rmsUpper = vecPow >> 24;
-				rmsUpMid = vecPow >> 16;
-				rmsLowMid = vecPow >> 8;
-				rmsLow = vecPow;
+				rmsUpper = (vecPow >> 24)&0x000000FF;
+				rmsUpMid = (vecPow >> 16)&0x000000FF;
+				rmsLowMid = (vecPow >> 8)&0x000000FF;
+				rmsLow = (vecPow)&0x000000FF;
 	
 				if(holdIndex < 256)
 				{
@@ -212,29 +219,30 @@ void __attribute__((__interrupt__,no_auto_psv)) _T1Interrupt(void)
 		if(startFlag == STOP)
 		{
 			startFlag = START; 
-			while(U1STAbits.TRMT == 0){}
-			U1TXREG = sendCommand; // let the computer know the next byte is a command
-			while(U1STAbits.TRMT == 0){}
-			U1TXREG = voltageOn; // turn function generator on			
-			while(!U1STAbits.URXDA){} // wait for confirmation that function generator was turned on
-			IFS0bits.U1RXIF = 0; // clear the U1RX interrupt flag
-		    waitForVoltageConfirm = U1RXREG;
-			LATBbits.LATB3 = START;
+			//while(U1STAbits.TRMT == 0){}
+			//U1TXREG = sendCommand; // let the computer know the next byte is a command
+			//while(U1STAbits.TRMT == 0){}
+			//U1TXREG = voltageOn; // turn function generator on			
+			//while(!U1STAbits.URXDA){} // wait for confirmation that function generator was turned on
+			//IFS0bits.U1RXIF = 0; // clear the U1RX interrupt flag
+		    //waitForVoltageConfirm = U1RXREG;
+			//LATBbits.LATB3 = START;
 			//waitForVoltageConfirm == 1;
 			allOn = 0;
 		}
 		else
 		{
 			startFlag = STOP; 
-			while(U1STAbits.TRMT == 0){}
-			U1TXREG = sendCommand; // let the computer know the next byte is a command
-			while(U1STAbits.TRMT == 0){}
-			U1TXREG = voltageOff; // turn function generator off	
-			while(!U1STAbits.URXDA){} // wait for confirmation that function generator was turned off
-			IFS0bits.U1RXIF = 0; // clear the U1RX interrupt flag
-			waitForVoltageConfirm = U1RXREG;
-			LATBbits.LATB3 = STOP;
-			//waitForVoltageConfirm == 1;
+			//while(U1STAbits.TRMT == 0){}
+			//U1TXREG = sendCommand; // let the computer know the next byte is a command
+			//while(U1STAbits.TRMT == 0){}
+			//U1TXREG = voltageOff; // turn function generator off	
+			//LATBbits.LATB3 = STOP;
+			//while(!U1STAbits.URXDA){} // wait for confirmation that function generator was turned off
+			//IFS0bits.U1RXIF = 0; // clear the U1RX interrupt flag
+			//waitForVoltageConfirm = U1RXREG;
+			//waitForVoltageConfirm = 1;
+			//firstCycle = 0;
 			allClear = 0;
 		}
 	}
@@ -245,7 +253,8 @@ void __attribute__((__interrupt__,no_auto_psv)) _T1Interrupt(void)
 // just in case the interrupt is accidentally accessed
 void __attribute__((__interrupt__,no_auto_psv)) _U1TXInterrupt(void)
 {
-	IFS0bits.U1TXIF = 0;
+	IFS0bits.U1TXIF = 0; // clear the interrupt flag
+	IEC0bits.U1TXIE = 0; // disable the U1TX interrupt
 	return;
 }
 
@@ -366,16 +375,16 @@ void __attribute__((__interrupt__,no_auto_psv)) _U1RXInterrupt(void)
 void __attribute__((__interrupt__,no_auto_psv)) _SPI1Interrupt(void)
 {
 	IFS0bits.SPI1IF = 0; // clear the SPI interrupt flag
-	IFS0bits.U1RXIF = 0; 
+	LATBbits.LATB2 = 1;
 	tempindex = SPI1BUF;
 	spiIn[spiIndex] = tempindex >> 6; //SPI1BUF >> 6;		
 	spiIndex++;
 	if(spiIndex >= 128)
 	{
 	    spiIndex = 0;
-		uartFlag = 1;
 		rmsFlag = 1;
 	}
+	LATBbits.LATB2 = 0;
 
 	return;
 }
@@ -411,7 +420,7 @@ long AverageRMS(volatile long *vecArray, volatile int upperBound)
 		cycleRmsAverage = cycleRmsAverage + vecArray[i];
 	}
 
-	cycleRmsAverage = cycleRmsAverage/upperBound;
+	cycleRmsAverage = cycleRmsAverage >> 8;
 
 	return cycleRmsAverage;
 }
