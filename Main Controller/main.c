@@ -5,7 +5,7 @@
 
 _FOSC(XT_PLL16 & PRI & CSW_FSCM_OFF); // External primary oscillator with 16x PLL. Gives 29.5 MIPS. Clock Switching disabled.
 _FWDT(WDT_OFF);                       // Watchdog timer turned off
-_FBORPOR(PWRT_OFF & PBOR_OFF & MCLR_EN); // POR timer off, No brownout reset, Master clear enabled
+_FBORPOR(PWRT_OFF & PBOR_OFF & MCLR_DIS); // POR timer off, No brownout reset, Master clear enabled
 _FGS(GWRP_OFF & CODE_PROT_OFF); // General code segment write protect off, general segment code protection off
 
 #define BLOCK_LENGTH	128
@@ -31,6 +31,8 @@ volatile long upperThreshold = 0;
 volatile long recLong = 0;
 volatile long spiIn[128];
 volatile long holdPows[256]; // array holding the values of vecPow for a .5 second sonication
+volatile long runningRmsAverage = 0;
+volatile long runningHoldAverage = 0;
 volatile long cycleRmsAverage = 0;
 volatile int  holdIndex = 0;
 volatile char testspi[128];
@@ -55,7 +57,7 @@ volatile long signalMean = 0;
 volatile long signalTemp = 0;
 volatile long intermTemp = 0; 
 volatile long sumTemp = 0;
-volatile int tempindex = 0;
+volatile long tempindex = 0;
 volatile char recCom;
 volatile char allClear = 1;
 volatile char allOn = 0;
@@ -108,15 +110,17 @@ void main(void)
 		{
 			if(allClear == 0)
 			{
-				allClear = 1;
 				allOn = 0;
 				spiIndex = 0;
+				//*
 				while(U1STAbits.TRMT == 0){}
 				U1TXREG = sendCommand; // let the computer know the next byte is a command
 				while(U1STAbits.TRMT == 0){}
 				U1TXREG = voltageOff; // turn function generator off
 				waitForVoltageConfirm = 1;	
+				allClear = 1;
 				while(waitForVoltageConfirm == 1){}		
+				//*/
 				asm("nop");
 				asm("nop");
 				LATBbits.LATB3 == STOP;	
@@ -129,7 +133,8 @@ void main(void)
 					U1TXREG = raiseVoltage;  // being reached. Increase voltage
 					cycleCount = 0;
 				}
-				cycleRmsAverage = AverageRMS(&holdPows[0], holdIndex);
+				//cycleRmsAverage = AverageRMS(&holdPows[0], holdIndex);
+				cycleRmsAverage = runningHoldAverage;
 				if(cycleRmsAverage < 0){cycleRmsAverage = 0;}
 				holdIndex = 0;
 				rmsUpper = (cycleRmsAverage >> 24)&0x000000FF;
@@ -165,12 +170,14 @@ void main(void)
 				allClear = 0;
 				allOn = 1;
 				holdIndex = 0;
+				//*
 				while(U1STAbits.TRMT == 0){}
 				U1TXREG = sendCommand; // let the computer know the next byte is a command
 				while(U1STAbits.TRMT == 0){}
 			    U1TXREG = voltageOn; // turn function generator on
 				waitForVoltageConfirm = 1;
 				while(waitForVoltageConfirm == 1){}
+				//*/
 				asm("nop");
 				asm("nop");
 				LATBbits.LATB3 = START;
@@ -179,7 +186,7 @@ void main(void)
 			if(rmsFlag == 1)	
 			{
 				rmsFlag = 0;
-	
+				LATBbits.LATB1 = 1;
 				vecPow = SignalRMS(&spiIn[0]);
 	
 				if(vecPow >= upperThreshold)
@@ -195,11 +202,21 @@ void main(void)
 				rmsLowMid = (vecPow >> 8)&0x000000FF;
 				rmsLow = (vecPow)&0x000000FF;
 	
-				if(holdIndex < 256)
+				if(holdIndex == 0)
 				{
-					holdPows[holdIndex] = vecPow;
-					holdIndex++;
+					runningRmsAverage = runningRmsAverage - holdPows[255];
 				}
+				else
+				{
+					runningRmsAverage = runningRmsAverage - holdPows[holdIndex];
+				}
+				holdPows[holdIndex] = vecPow;
+				runningRmsAverage = runningRmsAverage + vecPow;
+				runningHoldAverage = (runningRmsAverage >> 8);
+				holdIndex++;
+				if(holdIndex >= 256){holdIndex = 0;}
+
+				LATBbits.LATB1 = 0;
 			}	
 
 		}
@@ -211,6 +228,7 @@ void main(void)
 void __attribute__((__interrupt__,no_auto_psv)) _T1Interrupt(void)
 {	
 	// gives half second on, half second off
+	//IEC0bits.SPI1IE = 0;
 	IFS0bits.T1IF = 0; // clear timer1 interrupt flag
 	TimerCount++;
 	if(TimerCount >= 28)
@@ -246,6 +264,7 @@ void __attribute__((__interrupt__,no_auto_psv)) _T1Interrupt(void)
 			allClear = 0;
 		}
 	}
+	//IEC0bits.SPI1IE = 1;
 	return;
 }
 
@@ -260,7 +279,6 @@ void __attribute__((__interrupt__,no_auto_psv)) _U1TXInterrupt(void)
 
 void __attribute__((__interrupt__,no_auto_psv)) _U1RXInterrupt(void)
 {
-	LATBbits.LATB1 = 1;
 	IFS0bits.U1RXIF = 0; // clear the U1RX interrupt flag
 	recCom = U1RXREG;
 	if(U1STAbits.RIDLE)
@@ -315,6 +333,7 @@ void __attribute__((__interrupt__,no_auto_psv)) _U1RXInterrupt(void)
 		{
 			case 's': // received command to stop sampling
 				startFlag = 0;
+				allClear = 0;
 				//LATBbits.LATB3 = 0;
 				asm("nop");
 				asm("nop");
@@ -324,6 +343,7 @@ void __attribute__((__interrupt__,no_auto_psv)) _U1RXInterrupt(void)
 				break;
 			case 'g': // received command to start sampling ("go")
 				readyFlag = 1;
+				allOn = 0;
 				//LATBbits.LATB3 = 1;
 				asm("nop");
 				asm("nop");
@@ -365,7 +385,6 @@ void __attribute__((__interrupt__,no_auto_psv)) _U1RXInterrupt(void)
 	{
 		LATBbits.LATB5 = 0;
 	}
-	LATBbits.LATB1 = 0;
 
 	IFS0bits.U1RXIF = 0; // clear the U1RX interrupt flag
 	
@@ -376,8 +395,9 @@ void __attribute__((__interrupt__,no_auto_psv)) _SPI1Interrupt(void)
 {
 	IFS0bits.SPI1IF = 0; // clear the SPI interrupt flag
 	LATBbits.LATB2 = 1;
-	tempindex = SPI1BUF;
-	spiIn[spiIndex] = tempindex >> 6; //SPI1BUF >> 6;		
+	tempindex = 92;//SPI1BUF;
+	spiIn[spiIndex] = 0;
+	spiIn[spiIndex] += 92;//tempindex;	
 	spiIndex++;
 	if(spiIndex >= 128)
 	{
@@ -385,6 +405,14 @@ void __attribute__((__interrupt__,no_auto_psv)) _SPI1Interrupt(void)
 		rmsFlag = 1;
 	}
 	LATBbits.LATB2 = 0;
+	if(startFlag == STOP)
+	{
+		if(allClear == 1){LATBbits.LATB3 = STOP;}
+	}
+	else if(startFlag == START)
+	{
+		if(allOn == 1){LATBbits.LATB3 = START;}
+	}
 
 	return;
 }

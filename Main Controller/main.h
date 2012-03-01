@@ -19,15 +19,15 @@ void SPI_Init(void)
 
 void Controller_Init(void)
 {
-	INTCON1bits.NSTDIS = 1; // interrupt nesting is disabled
+	INTCON1bits.NSTDIS = 0; // interrupt nesting is enabled
     INTCON2bits.ALTIVT = 0; // use default vector table
 
     IEC0bits.SPI1IE = 1; // SPI1 interrupts enabled
 	IEC0bits.U1RXIE = 1; // U1 Receive interrupts enabled
 	IEC0bits.U1TXIE = 1; // Timer1 interrupt enabled
 	IPC2bits.SPI1IP = 7; // SPI interrupt is at next highest priority
-	IPC2bits.U1RXIP = 6; // UART receive interrupt is at highest priority
-	IPC0bits.T1IP = 6; // Timer1 interrupt is at priority 6
+	IPC2bits.U1RXIP = 7; // UART receive interrupt is at highest priority
+	IPC0bits.T1IP = 5; // Timer1 interrupt is at priority 6
     TRISB = 0x00; // PORTB all output
 	TRISFbits.TRISF2 = 1; // SDI is an input
 	TRISFbits.TRISF3 = 0; // SDO is output
