@@ -207,7 +207,7 @@ if(serialID == -1) % if the next transmission is a command
     elseif(receivedCommand == 'n')
         %set(agilentObject,'Output','On');
         fprintf('Function Generator On\n');
-        fprintf(picObject,'p'); % send dummy character to controller
+        fwrite(picObject,'p','uint8'); % send dummy character to controller
                            % so it knows AWG was turned on
     else
         fprintf('Received unknown command "%s".\n',receivedCommand);
