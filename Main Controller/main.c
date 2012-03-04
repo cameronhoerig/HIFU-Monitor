@@ -11,13 +11,13 @@ _FGS(GWRP_OFF & CODE_PROT_OFF); // General code segment write protect off, gener
 #define BLOCK_LENGTH	128
 #define	START			1
 #define STOP			0
-#define raiseVoltage	'r'
-#define lowerVoltage	'l'
-#define emergencyLower 	'e'
-#define voltageOn		'n'
-#define voltageOff		'a'
-#define sendCommand		-1
-#define sendData		-5
+#define raiseVoltage	'r' // command to raise the voltage by 10 mVpp
+#define lowerVoltage	'l' // command to lower the voltage by 10 mVpp
+#define emergencyLower 	'e' // emergency command to drop the voltage by 100 mVpp
+#define voltageOn		'n' // command to turn the function generator on 
+#define voltageOff		'a' // command to turn the function generator off
+#define sendCommand		-1  // identifier to signal the next byte is a command
+#define sendData		-5  // identifier to signal the next 4 bytes are a "long"
 
 void SPI_Init(void);
 void Controller_Init(void);
@@ -35,23 +35,21 @@ volatile long runningRmsAverage = 0;
 volatile long runningHoldAverage = 0;
 volatile long cycleRmsAverage = 0;
 volatile int  holdIndex = 0;
-volatile char testspi[128];
-int forCount;
+
+volatile int forCount;
 volatile int spiIndex = 0;
 volatile int uartIndex = 0;
-volatile int uartFlag = 0;
+
 volatile int startFlag = 0; // flag to determine when data should be sampled
 volatile char readyFlag = 0; // flag to determine when the MCU is ready to start normal operation
 volatile char rmsToSend; // specifies which byte of the 32-bit vecPow to send
-//volatile char multiplyFactor; // specifies what multiplying factor needs to be sent with
-						// rmsToSend (0,8,16, or 24)
+
 volatile char rmsUpper; // upper byte of vecPow
 volatile char rmsUpMid; // upper middle byte of vecPow
 volatile char rmsLowMid; // lower middle byte of vecPow
 volatile char rmsLow; // lower byte of vecPow
 volatile long TimerCount = 0;
-int rmsFlag = 0;
-const int absMag = 128;
+volatile int rmsFlag = 0;
 volatile long vecPow;
 volatile long signalMean = 0;
 volatile long signalTemp = 0;
@@ -70,36 +68,63 @@ volatile char firstCycle = 1; // flag to tell when the first sonication is done
 long upperRmsBound = 0;
 int cycleCount = 0; // counts the number of cycles that have passed without
 					// the RMS threshold being reached
-/*
-char raiseVoltage = 'r';   // command to raise the voltage by 10 mVpp
-char lowerVoltage = 'l';   // command to lower the voltage by 10 mVpp
-char emergencyLower = 'e'; // emergency command to drop the voltage by 100 mVpp
-						   // since a critical threshold has been reached
-char voltageOn = 'n';      // command to turn the function generator on
-char voltageOff = 'a';	   // command to turn the function generator off
-signed char sendCommand = -1;
-signed char sendData = -5;
-*/
+
 volatile long delayCount = 0;
 volatile char waitForVoltageConfirm = 0; // flag for confirming when the function
 										 // generator has been turned on or off
+volatile char lowerFlag = 0; // flag to signal when the function generator voltage has been lowered
+volatile char dataReceived = 0; // flag to signal when data has been received via UART when receiving
+								// upperRmsBound from the computer
 
 void main(void)
 {	
-	/*
-	tempindex = 0b0111111111000000;
-	for(forCount = 0; forCount < 128; forCount++)
-	{
-		spiIn[forCount] = tempindex >> 6;
-		rmsFlag = 1;
-	}
-	//*/
 	SPI_Init();
 	Controller_Init();
 	UART_Init();
-	Timer1_Init();
-	
-	while(readyFlag == 0){}; // wait for first command from computer before starting
+	Timer1_Init();	
+
+	while(readyFlag == 0)// wait for first command from computer before starting
+	{
+		if(dataReceived == 1)
+		{
+			if(receivingThreshold == 1)
+			{
+				recLong = 0;
+				recLong = recCom;
+				if(receiveCount == 0)
+				{
+					recLong = recLong << 24;
+					upperThreshold += (recLong & 0xFF000000);
+					while(U1STAbits.TRMT == 0){}
+					U1TXREG = 'k';
+				}
+				else if(receiveCount == 1)
+				{
+					recLong = recLong << 16;
+					upperThreshold += (recLong & 0x00FF0000);
+					while(U1STAbits.TRMT == 0){}
+					U1TXREG = 'k';
+				}
+				else if(receiveCount == 2)
+				{
+					recLong = recLong << 8;
+					upperThreshold += (recLong & 0x0000FF00);
+					while(U1STAbits.TRMT == 0){}
+					U1TXREG = 'k';
+				}
+				else
+				{
+					upperThreshold += (recLong & 0x000000FF);
+					while(U1STAbits.TRMT == 0){}
+					U1TXREG = 'k';
+					receivingThreshold = 0;
+					receiveCount = 0;
+				}
+				receiveCount++;
+			}
+		dataReceived = 0;
+		}
+	} 
 	T1CONbits.TON = 1;
 
 	while(1)
@@ -121,9 +146,6 @@ void main(void)
 				allClear = 1;
 				while(waitForVoltageConfirm == 1){}		
 				//*/
-				asm("nop");
-				asm("nop");
-				LATBbits.LATB3 == STOP;	
 				cycleCount++;
 				if(cycleCount > 10)
 				{
@@ -178,9 +200,6 @@ void main(void)
 				waitForVoltageConfirm = 1;
 				while(waitForVoltageConfirm == 1){}
 				//*/
-				asm("nop");
-				asm("nop");
-				LATBbits.LATB3 = START;
 			}
 
 			if(rmsFlag == 1)	
@@ -195,6 +214,8 @@ void main(void)
 					U1TXREG = sendCommand; // let the computer know the next byte is a command
 					while(U1STAbits.TRMT == 0){}
 					U1TXREG = lowerVoltage; // turn function generator off		
+					lowerFlag = 1;
+					cycleCount = 0;
 				}						
 	
 				rmsUpper = (vecPow >> 24)&0x000000FF;
@@ -215,20 +236,30 @@ void main(void)
 				runningHoldAverage = (runningRmsAverage >> 8);
 				holdIndex++;
 				if(holdIndex >= 256){holdIndex = 0;}
+				
+				if(runningHoldAverage >= upperThreshold)
+				{
+					if(lowerFlag == 0)
+					{
+						while(U1STAbits.TRMT == 0){}
+						U1TXREG = sendCommand; // let the computer know the next byte is a command
+						while(U1STAbits.TRMT == 0){}
+						U1TXREG = lowerVoltage; // turn function generator off		
+					}
+				}
 
 				LATBbits.LATB1 = 0;
+				lowerFlag = 0;
 			}	
 
 		}
 			
 	}
-	return;
 }
 
 void __attribute__((__interrupt__,no_auto_psv)) _T1Interrupt(void)
 {	
 	// gives half second on, half second off
-	//IEC0bits.SPI1IE = 0;
 	IFS0bits.T1IF = 0; // clear timer1 interrupt flag
 	TimerCount++;
 	if(TimerCount >= 28)
@@ -237,34 +268,14 @@ void __attribute__((__interrupt__,no_auto_psv)) _T1Interrupt(void)
 		if(startFlag == STOP)
 		{
 			startFlag = START; 
-			//while(U1STAbits.TRMT == 0){}
-			//U1TXREG = sendCommand; // let the computer know the next byte is a command
-			//while(U1STAbits.TRMT == 0){}
-			//U1TXREG = voltageOn; // turn function generator on			
-			//while(!U1STAbits.URXDA){} // wait for confirmation that function generator was turned on
-			//IFS0bits.U1RXIF = 0; // clear the U1RX interrupt flag
-		    //waitForVoltageConfirm = U1RXREG;
-			//LATBbits.LATB3 = START;
-			//waitForVoltageConfirm == 1;
 			allOn = 0;
 		}
 		else
 		{
 			startFlag = STOP; 
-			//while(U1STAbits.TRMT == 0){}
-			//U1TXREG = sendCommand; // let the computer know the next byte is a command
-			//while(U1STAbits.TRMT == 0){}
-			//U1TXREG = voltageOff; // turn function generator off	
-			//LATBbits.LATB3 = STOP;
-			//while(!U1STAbits.URXDA){} // wait for confirmation that function generator was turned off
-			//IFS0bits.U1RXIF = 0; // clear the U1RX interrupt flag
-			//waitForVoltageConfirm = U1RXREG;
-			//waitForVoltageConfirm = 1;
-			//firstCycle = 0;
 			allClear = 0;
 		}
 	}
-	//IEC0bits.SPI1IE = 1;
 	return;
 }
 
@@ -281,52 +292,7 @@ void __attribute__((__interrupt__,no_auto_psv)) _U1RXInterrupt(void)
 {
 	IFS0bits.U1RXIF = 0; // clear the U1RX interrupt flag
 	recCom = U1RXREG;
-	if(U1STAbits.RIDLE)
-	{
-		U1STAbits.OERR = 0;
-		LATBbits.LATB5 = 1;
-	}
-	else
-	{
-		LATBbits.LATB5 = 0;
-	}
-
-	if(receivingThreshold == 1)
-	{
-		recLong = 0;
-		recLong = recCom;
-		if(receiveCount == 0)
-		{
-			recLong = recLong << 24;
-			upperThreshold += (recLong & 0xFF000000);
-			while(U1STAbits.TRMT == 0){}
-			U1TXREG = 'k';
-		}
-		else if(receiveCount == 1)
-		{
-			recLong = recLong << 16;
-			upperThreshold += (recLong & 0x00FF0000);
-			while(U1STAbits.TRMT == 0){}
-			U1TXREG = 'k';
-		}
-		else if(receiveCount == 2)
-		{
-			recLong = recLong << 8;
-			upperThreshold += (recLong & 0x0000FF00);
-			while(U1STAbits.TRMT == 0){}
-			U1TXREG = 'k';
-		}
-		else
-		{
-			//upperThreshold = upperThreshold << 8;
-			upperThreshold += (recLong & 0x000000FF);
-			while(U1STAbits.TRMT == 0){}
-			U1TXREG = 'k';
-			receivingThreshold = 0;
-			receiveCount = 0;
-		}
-		receiveCount++;
-	}
+	if(receivingThreshold == 1){dataReceived = 1;}
 	else
 	{
 		switch(recCom)
@@ -334,59 +300,32 @@ void __attribute__((__interrupt__,no_auto_psv)) _U1RXInterrupt(void)
 			case 's': // received command to stop sampling
 				startFlag = 0;
 				allClear = 0;
-				//LATBbits.LATB3 = 0;
-				asm("nop");
-				asm("nop");
-				LATBbits.LATB4 = 0;
-				asm("nop");
-				asm("nop");
 				break;
 			case 'g': // received command to start sampling ("go")
 				readyFlag = 1;
 				allOn = 0;
-				//LATBbits.LATB3 = 1;
-				asm("nop");
-				asm("nop");
-				LATBbits.LATB4 = 0;
-				asm("nop");
-				asm("nop");
 				break;
-			case 'c':
+			case 'c': // Computer ready. Get ready to receive threshold from computer ("long")
 				receivingThreshold = 1;
 				receiveCount = 0;
 				while(U1STAbits.TRMT == 0){}
 				U1TXREG = 'c';
 				break;
-			case 'q':
-				//LATBbits.LATB3 = STOP;
+			case 'q': // confirmation of reception of "stop function generator" command
+				LATBbits.LATB3 = STOP;
 				waitForVoltageConfirm = 0;
 				break;
-			case 'p':
-				//LATBbits.LATB3 = START;
+			case 'p': // confirmation of receptiong of "start function generator" command
+				LATBbits.LATB3 = START;
 				waitForVoltageConfirm = 0;
 				//LATBbits.LATB0 = 1;
 				break;
 			case 'r':
 				LATBbits.LATB0 = 1;
 			default:  // unknown command received
-				LATBbits.LATB4 = 1;
-				asm("nop");
-				asm("nop");
 				break;
 		}
 	}
-
-	if(U1STAbits.RIDLE)
-	{
-		U1STAbits.OERR = 0;
-		LATBbits.LATB5 = 1;
-	}
-	else
-	{
-		LATBbits.LATB5 = 0;
-	}
-
-	IFS0bits.U1RXIF = 0; // clear the U1RX interrupt flag
 	
 	return;
 }
@@ -397,7 +336,7 @@ void __attribute__((__interrupt__,no_auto_psv)) _SPI1Interrupt(void)
 	LATBbits.LATB2 = 1;
 	tempindex = 92;//SPI1BUF;
 	spiIn[spiIndex] = 0;
-	spiIn[spiIndex] += 92;//tempindex;	
+	spiIn[spiIndex] += tempindex;	
 	spiIndex++;
 	if(spiIndex >= 128)
 	{
@@ -405,15 +344,23 @@ void __attribute__((__interrupt__,no_auto_psv)) _SPI1Interrupt(void)
 		rmsFlag = 1;
 	}
 	LATBbits.LATB2 = 0;
-	if(startFlag == STOP)
-	{
-		if(allClear == 1){LATBbits.LATB3 = STOP;}
-	}
-	else if(startFlag == START)
-	{
-		if(allOn == 1){LATBbits.LATB3 = START;}
-	}
 
+	/*
+	if(startFlag == 0)
+	{
+		if(allClear == 1)
+		{
+			LATBbits.LATB3 = STOP;
+		}
+	}
+	else if(startFlag == 1)
+	{
+		if(allOn == 1)
+		{
+			LATBbits.LATB3 = START;
+		}
+	}
+	//*/
 	return;
 }
 
