@@ -55,7 +55,7 @@ volatile long signalMean = 0;
 volatile long signalTemp = 0;
 volatile long intermTemp = 0; 
 volatile long sumTemp = 0;
-volatile long tempindex = 0;
+volatile int tempindex = 0;
 volatile char recCom;
 volatile char allClear = 1;
 volatile char allOn = 0;
@@ -279,6 +279,13 @@ void __attribute__((__interrupt__,no_auto_psv)) _T1Interrupt(void)
 	return;
 }
 
+void __attribute__((__interrupt__,no_auto_psv)) _INT1Interrupt(void)
+{
+	IFS1bits.INT1IF = 0; // clear interrupt flag
+	SPI1STATbits.SPIEN = 1;// enable SPI module
+	return;
+}
+
 // while the U1TX interrupt is not used, code is placed at the interrupt vector
 // just in case the interrupt is accidentally accessed
 void __attribute__((__interrupt__,no_auto_psv)) _U1TXInterrupt(void)
@@ -332,20 +339,21 @@ void __attribute__((__interrupt__,no_auto_psv)) _U1RXInterrupt(void)
 
 void __attribute__((__interrupt__,no_auto_psv)) _SPI1Interrupt(void)
 {
+	SPI1STATbits.SPIEN = 0; // disable SPI module
 	IFS0bits.SPI1IF = 0; // clear the SPI interrupt flag
-	LATBbits.LATB2 = 1;
-	tempindex = 92;//SPI1BUF;
+	LATEbits.LATE0 = 1;
+	tempindex = SPI1BUF;
 	spiIn[spiIndex] = 0;
-	spiIn[spiIndex] += tempindex;	
+	spiIn[spiIndex] = spiIn[spiIndex]+ (long)tempindex;	
 	spiIndex++;
 	if(spiIndex >= 128)
 	{
 	    spiIndex = 0;
 		rmsFlag = 1;
 	}
-	LATBbits.LATB2 = 0;
+	LATEbits.LATE0 = 0;
 
-	/*
+	//*
 	if(startFlag == 0)
 	{
 		if(allClear == 1)

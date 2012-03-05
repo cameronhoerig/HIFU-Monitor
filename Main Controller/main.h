@@ -4,15 +4,15 @@ void SPI_Init(void)
 	SPI1STATbits.SPISIDL = 0; // continue module operation in idle mode
 
 	SPI1CONbits.FRMEN = 0; // framed SPI support disabled
-	SPI1CONbits.SPIFSD = 1; // frame sync pulse input
+	SPI1CONbits.SPIFSD = 1; // frame sync pulse input (slave)
 	SPI1CONbits.DISSDO = 1; // SDO pin is not used by module. Release control to TRIS register
 	SPI1CONbits.MODE16 = 1; // communication is word-wide(16 bit)
 	SPI1CONbits.SMP = 0; // must be cleared in slave mode
-	SPI1CONbits.SSEN = 0; // SS' pin not used by module
+	SPI1CONbits.SSEN = 1; // SS' used for slave mode
 	SPI1CONbits.CKP = 0; // idle state for clock is low level
 	SPI1CONbits.MSTEN = 0; // in slave mode
 
-	SPI1STATbits.SPIEN = 1; // initialization done. Enable SPI module
+	//SPI1STATbits.SPIEN = 1; // initialization done. Enable SPI module
 
 	return;
 }
@@ -22,17 +22,24 @@ void Controller_Init(void)
 	INTCON1bits.NSTDIS = 1; // interrupt nesting is disabled
     INTCON2bits.ALTIVT = 0; // use default vector table
 
+	INTCON2bits.INT1EP = 0; // INT1 interrupts on positive edge
+	IEC1bits.INT1IE = 1; // enable INT1 interrupt
+	IPC4bits.INT1IP = 7; // INT1 set to highest priority
+
     IEC0bits.SPI1IE = 1; // SPI1 interrupts enabled
 	IEC0bits.U1RXIE = 1; // U1 Receive interrupts enabled
 	IEC0bits.U1TXIE = 1; // Timer1 interrupt enabled
-	IPC2bits.SPI1IP = 6; // SPI interrupt is at next highest priority
+	IPC2bits.SPI1IP = 7; // SPI interrupt is at next highest priority
 	IPC2bits.U1RXIP = 6; // UART receive interrupt is at highest priority
-	IPC0bits.T1IP = 7; // Timer1 interrupt is at priority 6
+	IPC0bits.T1IP = 6; // Timer1 interrupt is at priority 6
     TRISB = 0x00; // PORTB all output
+	TRISE = 0x00; // PORTE all output
+	TRISBbits.TRISB2 = 1; // SS' is an input
 	TRISFbits.TRISF2 = 1; // SDI is an input
 	TRISFbits.TRISF3 = 0; // SDO is output
 	TRISCbits.TRISC14 = 1; // U1ARX is input
 	TRISCbits.TRISC13 = 0; // U1ATX is output
+	TRISDbits.TRISD0 = 1; // INT1 is an input
 	
 	LATBbits.LATB0 = 0;
 	LATBbits.LATB3 = 0;
