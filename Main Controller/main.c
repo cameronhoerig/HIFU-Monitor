@@ -5,7 +5,7 @@
 
 _FOSC(XT_PLL16 & PRI & CSW_FSCM_OFF); // External primary oscillator with 16x PLL. Gives 29.5 MIPS. Clock Switching disabled.
 _FWDT(WDT_OFF);                       // Watchdog timer turned off
-_FBORPOR(PWRT_OFF & PBOR_OFF & MCLR_DIS); // POR timer off, No brownout reset, Master clear enabled
+_FBORPOR(PWRT_OFF & PBOR_OFF & MCLR_EN); // POR timer off, No brownout reset, Master clear enabled
 _FGS(GWRP_OFF & CODE_PROT_OFF); // General code segment write protect off, general segment code protection off
 
 #define BLOCK_LENGTH	128
@@ -30,7 +30,7 @@ long AverageRMS(volatile long*, volatile int);
 volatile long upperThreshold = 0;
 volatile long recLong = 0;
 volatile long spiIn[128];
-volatile long holdPows[256]; // array holding the values of vecPow for a .5 second sonication
+volatile long holdPows[128]; // array holding the values of vecPow for a .5 second sonication
 volatile long runningRmsAverage = 0;
 volatile long runningHoldAverage = 0;
 volatile long cycleRmsAverage = 0;
@@ -136,7 +136,10 @@ void main(void)
 			if(allClear == 0)
 			{
 				allOn = 0;
-				spiIndex = 0;
+				spiIndex = 0;	
+				SPI1STATbits.SPIEN = 0; // disable SPI module
+				tempindex = SPI1BUF; // clear the SPI buffer
+				SPI1BUF = 0;
 				//*
 				while(U1STAbits.TRMT == 0){}
 				U1TXREG = sendCommand; // let the computer know the next byte is a command
@@ -155,8 +158,13 @@ void main(void)
 					U1TXREG = raiseVoltage;  // being reached. Increase voltage
 					cycleCount = 0;
 				}
-				//cycleRmsAverage = AverageRMS(&holdPows[0], holdIndex);
-				cycleRmsAverage = runningHoldAverage;
+				cycleRmsAverage = runningHoldAverage;// AverageRMS(&holdPows[0], holdIndex);
+				/*
+				cycleRmsAverage = 1000;//holdPows[0];//runningHoldAverage;
+				for(forCount = 2; forCount < BLOCK_LENGTH-1; forCount++)
+				{
+					if(holdPows[forCount] != 8464){cycleRmsAverage = holdPows[forCount];}
+				}//*/
 				if(cycleRmsAverage < 0){cycleRmsAverage = 0;}
 				holdIndex = 0;
 				rmsUpper = (cycleRmsAverage >> 24)&0x000000FF;
@@ -222,21 +230,32 @@ void main(void)
 				rmsUpMid = (vecPow >> 16)&0x000000FF;
 				rmsLowMid = (vecPow >> 8)&0x000000FF;
 				rmsLow = (vecPow)&0x000000FF;
-	
-				if(holdIndex == 0)
+				/*
+				if(holdIndex < BLOCK_LENGTH)
 				{
-					runningRmsAverage = runningRmsAverage - holdPows[255];
-				}
-				else
+					holdPows[holdIndex] = vecPow;
+					holdIndex++;
+				}//*/
+
+				//*
+				if(holdIndex < BLOCK_LENGTH)
 				{
-					runningRmsAverage = runningRmsAverage - holdPows[holdIndex];
+					if(holdIndex > 1)
+					{
+						if(holdIndex == 2)
+						{
+							runningRmsAverage = runningRmsAverage - holdPows[127];
+						}
+						else
+						{
+							runningRmsAverage = runningRmsAverage - holdPows[holdIndex];
+						}
+						holdPows[holdIndex] = vecPow;
+						runningRmsAverage = runningRmsAverage + holdPows[holdIndex];
+						runningHoldAverage = (runningRmsAverage/126);
+					}
+					holdIndex++;
 				}
-				holdPows[holdIndex] = vecPow;
-				runningRmsAverage = runningRmsAverage + vecPow;
-				runningHoldAverage = (runningRmsAverage >> 8);
-				holdIndex++;
-				if(holdIndex >= 256){holdIndex = 0;}
-				
 				if(runningHoldAverage >= upperThreshold)
 				{
 					if(lowerFlag == 0)
@@ -247,6 +266,7 @@ void main(void)
 						U1TXREG = lowerVoltage; // turn function generator off		
 					}
 				}
+				//*/
 
 				LATBbits.LATB1 = 0;
 				lowerFlag = 0;
@@ -281,8 +301,14 @@ void __attribute__((__interrupt__,no_auto_psv)) _T1Interrupt(void)
 
 void __attribute__((__interrupt__,no_auto_psv)) _INT1Interrupt(void)
 {
+	LATEbits.LATE2 = 1;
 	IFS1bits.INT1IF = 0; // clear interrupt flag
+	SPI1STATbits.SPIEN = 0;
+	asm("nop");
 	SPI1STATbits.SPIEN = 1;// enable SPI module
+	tempindex = SPI1BUF; // ensure the SPI buffer is cleared
+	SPI1BUF = 0;
+	LATEbits.LATE2 = 0;
 	return;
 }
 
@@ -377,14 +403,16 @@ long SignalRMS(volatile long *signalArray)
 	int i = 0;
 	signalMean = 0;
 	sumTemp = 0;
-	for(i = 0; i < BLOCK_LENGTH; i++)
+	for(i = 2; i < BLOCK_LENGTH; i++)
 	{
 		signalTemp = signalArray[i];
 		intermTemp = signalTemp*signalTemp;
 		sumTemp = sumTemp + intermTemp;
+		if(i == 2){sumTemp = sumTemp + intermTemp;}
+		if(i == 3){sumTemp = sumTemp + intermTemp;}
 	}
 
-	signalMean = sumTemp >> 7; // dividing by 128, same as right-shifting 7 bit places
+	signalMean = (sumTemp/128); // dividing by 128, same as right-shifting 7 bit places
 	
 	return signalMean;
 }
@@ -392,18 +420,13 @@ long SignalRMS(volatile long *signalArray)
 long AverageRMS(volatile long *vecArray, volatile int upperBound)
 {
 	int i = 0;
-	cycleRmsAverage = 0;
-	if(upperBound > 0){}
-	else
+	runningRmsAverage = 0;
+	for(i = 0; i < BLOCK_LENGTH; i++)
 	{
-		upperBound = 256;
-	}
-	for(i = 0; i < upperBound; i++)
-	{
-		cycleRmsAverage = cycleRmsAverage + vecArray[i];
+		runningRmsAverage = runningRmsAverage + vecArray[i];
 	}
 
-	cycleRmsAverage = cycleRmsAverage >> 8;
+	cycleRmsAverage = (runningRmsAverage/128); // dividing by 128, same as right-shifting 7 bits
 
 	return cycleRmsAverage;
 }

@@ -8,7 +8,7 @@ void SPI_Init(void)
 	SPI1CONbits.DISSDO = 1; // SDO pin is not used by module. Release control to TRIS register
 	SPI1CONbits.MODE16 = 1; // communication is word-wide(16 bit)
 	SPI1CONbits.SMP = 0; // must be cleared in slave mode
-	SPI1CONbits.SSEN = 1; // SS' used for slave mode
+	SPI1CONbits.SSEN = 0; // SS' used for slave mode (currently not in use, so disabled)
 	SPI1CONbits.CKP = 0; // idle state for clock is low level
 	SPI1CONbits.MSTEN = 0; // in slave mode
 
@@ -29,9 +29,9 @@ void Controller_Init(void)
     IEC0bits.SPI1IE = 1; // SPI1 interrupts enabled
 	IEC0bits.U1RXIE = 1; // U1 Receive interrupts enabled
 	IEC0bits.U1TXIE = 1; // Timer1 interrupt enabled
-	IPC2bits.SPI1IP = 7; // SPI interrupt is at next highest priority
+	IPC2bits.SPI1IP = 6; // SPI interrupt is at next highest priority
 	IPC2bits.U1RXIP = 6; // UART receive interrupt is at highest priority
-	IPC0bits.T1IP = 6; // Timer1 interrupt is at priority 6
+	IPC0bits.T1IP = 7; // Timer1 interrupt is at priority 6
     TRISB = 0x00; // PORTB all output
 	TRISE = 0x00; // PORTE all output
 	TRISBbits.TRISB2 = 1; // SS' is an input
