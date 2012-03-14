@@ -96,7 +96,6 @@ set(agilentObj,'Waveform', funcForm);
 picObject = 1; % dummy used for debugging
 
 picObject = serial('COM7','BaudRate',921875);
-picObject.Timeout = 1;
 %picObject.InputBufferSize = 10000;
 %picObject.BytesAvailableFcnMode = 'byte';
 %picObject.BytesAvailableFcnCount = 1;
@@ -279,35 +278,35 @@ if(pauseOperation == 0)
     while(handshakeComplete == 0)
         fwrite(picObject,'c','uint8');
         picResponse = fread(picObject,1,'uint8');
-        if(picResponse ~= 'c' || isEmpty(picResponse))
+        if(picResponse ~= 'c')
             continue
         end
         pause(.1);
         
         fwrite(picObject,highByteThreshold,'uint8');
         picResponse = fread(picObject,1,'uint8');
-        if(picResponse ~= 'k' || isEmpty(picResponse))
+        if(picResponse ~= 'k')
             continue
         end
         pause(.1);
 
         fwrite(picObject,upmidByteThreshold,'uint8');
         picResponse = fread(picObject,1,'uint8');
-        if(picResponse ~= 'k' || isEmpty(picResponse))
+        if(picResponse ~= 'k')
             continue
         end
         pause(.1);
         
         fwrite(picObject,lowmidByteThreshold,'uint8');
         picResponse = fread(picObject,1,'uint8');
-        if(picResponse ~= 'k' || isEmpty(picResponse))
+        if(picResponse ~= 'k')
             continue
         end
         pause(.1);
 
         fwrite(picObject,lowByteThreshold,'uint8');
         picResponse = fread(picObject,1,'uint8');
-        if(picResponse ~= 'k' || isEmpty(picResponse))
+        if(picResponse ~= 'k')
             continue
         end
         pause(.1);

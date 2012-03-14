@@ -70,7 +70,7 @@ picObject.Timeout = 1;
 callbackOn = 0;
 
 fopen(picObject);
-%fwrite(picObject,'r','uint8'); % have the controller reset itself
+fwrite(picObject,'r','uint8'); % have the controller reset itself
 
 callbackData = zeros(1,dataPlotLength+2);
 callbackData(2:dataPlotLength+1) = dataToPlot;
@@ -171,14 +171,12 @@ if(serialID == -1) % if the next transmission is a command
         %currentAmp = get(agilentObject,'Amplitude');
         %currentAmp = currentAmp + .01;
         %set(agilentObject, 'Amplitude', currentAmp);
-        fprintf('\nRaise Voltage\n\n');
     %if the received command is to lower the amplitude, decrease
     %it by 10 mVpp
     elseif(receivedCommand == 'l')
         %currentAmp = get(agilentObject,'Amplitude');
         %currentAmp = currentAmp - .01;
         %set(agilentObject, 'Amplitude', currentAmp);
-        fprintf('\nLower Voltage\n\n');
     %if the received command is notifying of an "emergency" that the
     %emissions have hit a threshold with a significant probability of 
     %causing vessel rupture, low the amplitude by 100 mVpp
@@ -186,7 +184,7 @@ if(serialID == -1) % if the next transmission is a command
         %currentAmp = get(agilentObject,'Amplitude');
         %currentAmp = currentAmp - .1;
         %set(agilentObject, 'Amplitude', currentAmp);
-        fprintf('\nLower Voltage\n\n');
+            
     elseif(receivedCommand == 's')
         %The command was to remain at the current voltage level. Do nothing
         fprintf('Staying...\n');
