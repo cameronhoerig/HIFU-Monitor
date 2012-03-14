@@ -25,15 +25,15 @@ void UART_Init(void);
 void ProcessUart(void);
 void Timer1_Init(void);
 long SignalRMS(volatile long*);
-long AverageRMS(volatile long*, volatile int);
+long AverageRMS(volatile unsigned long*, volatile int);
 
-volatile long upperThreshold = 0;
+volatile unsigned long upperThreshold = 0;
 volatile long recLong = 0;
-volatile long spiIn[128];
-volatile long holdPows[128]; // array holding the values of vecPow for a .5 second sonication
-volatile long runningRmsAverage = 0;
-volatile long runningHoldAverage = 0;
-volatile long cycleRmsAverage = 0;
+volatile signed long spiIn[128];
+volatile unsigned long holdPows[128]; // array holding the values of vecPow for a .5 second sonication
+volatile unsigned long runningRmsAverage = 0;
+volatile unsigned long runningHoldAverage = 0;
+volatile unsigned long cycleRmsAverage = 0;
 volatile int  holdIndex = 0;
 
 volatile int forCount;
@@ -51,11 +51,11 @@ volatile char rmsLow; // lower byte of vecPow
 volatile long TimerCount = 0;
 volatile int rmsFlag = 0;
 volatile long vecPow;
-volatile long signalMean = 0;
+volatile unsigned long signalMean = 0;
 volatile long signalTemp = 0;
-volatile long intermTemp = 0; 
-volatile long sumTemp = 0;
-volatile int tempindex = 0;
+volatile unsigned long intermTemp = 0; 
+volatile unsigned long sumTemp = 0;
+volatile signed int tempindex = 0;
 volatile char recCom;
 volatile char allClear = 1;
 volatile char allOn = 0;
@@ -150,7 +150,7 @@ void main(void)
 				while(waitForVoltageConfirm == 1){}		
 				//*/
 				cycleCount++;
-				if(cycleCount > 10)
+				if(cycleCount >= 10)
 				{
 					while(U1STAbits.TRMT == 0){}
 					U1TXREG = sendCommand; // let the computer know the next byte is a command
@@ -158,7 +158,20 @@ void main(void)
 					U1TXREG = raiseVoltage;  // being reached. Increase voltage
 					cycleCount = 0;
 				}
-				cycleRmsAverage = runningHoldAverage;// AverageRMS(&holdPows[0], holdIndex);
+				cycleRmsAverage = AverageRMS(&holdPows[0], holdIndex);//runningHoldAverage;// 
+
+				if(cycleRmsAverage >= upperThreshold)
+				//*
+				{
+					while(U1STAbits.TRMT == 0){}
+					U1TXREG = sendCommand; // let the computer know the next byte is a command
+					while(U1STAbits.TRMT == 0){}
+					U1TXREG = lowerVoltage; // turn function generator off	
+					asm("nop");	
+					lowerFlag = 1;
+					cycleCount = 0;
+				}
+				//*/			
 				/*
 				cycleRmsAverage = 1000;//holdPows[0];//runningHoldAverage;
 				for(forCount = 2; forCount < BLOCK_LENGTH-1; forCount++)
@@ -215,7 +228,8 @@ void main(void)
 				rmsFlag = 0;
 				LATBbits.LATB1 = 1;
 				vecPow = SignalRMS(&spiIn[0]);
-	
+				if(vecPow > 33000000){LATEbits.LATE4 = 1;LATEbits.LATE4 = 0;}
+				/*
 				if(vecPow >= upperThreshold)
 				{
 					while(U1STAbits.TRMT == 0){}
@@ -225,19 +239,19 @@ void main(void)
 					lowerFlag = 1;
 					cycleCount = 0;
 				}						
-	
+				//*/
 				rmsUpper = (vecPow >> 24)&0x000000FF;
 				rmsUpMid = (vecPow >> 16)&0x000000FF;
 				rmsLowMid = (vecPow >> 8)&0x000000FF;
 				rmsLow = (vecPow)&0x000000FF;
-				/*
+				//*
 				if(holdIndex < BLOCK_LENGTH)
 				{
 					holdPows[holdIndex] = vecPow;
 					holdIndex++;
 				}//*/
 
-				//*
+				/*
 				if(holdIndex < BLOCK_LENGTH)
 				{
 					if(holdIndex > 1)
@@ -368,9 +382,11 @@ void __attribute__((__interrupt__,no_auto_psv)) _SPI1Interrupt(void)
 	SPI1STATbits.SPIEN = 0; // disable SPI module
 	IFS0bits.SPI1IF = 0; // clear the SPI interrupt flag
 	LATEbits.LATE0 = 1;
-	tempindex = SPI1BUF;
+	tempindex = -5600;//SPI1BUF;
 	spiIn[spiIndex] = 0;
 	spiIn[spiIndex] = spiIn[spiIndex]+ (long)tempindex;	
+	//if(spiIn[spiIndex] > 5600){LATEbits.LATE3 = 1;LATEbits.LATE3 = 0;}
+	//if(spiIn[spiIndex] < -5600){LATEbits.LATE3 = 1;LATEbits.LATE3 = 0;}
 	spiIndex++;
 	if(spiIndex >= 128)
 	{
@@ -403,30 +419,33 @@ long SignalRMS(volatile long *signalArray)
 	int i = 0;
 	signalMean = 0;
 	sumTemp = 0;
-	for(i = 2; i < BLOCK_LENGTH; i++)
+	for(i = 0; i < BLOCK_LENGTH; i++)
 	{
 		signalTemp = signalArray[i];
 		intermTemp = signalTemp*signalTemp;
+		//intermTemp = intermTemp/128;
 		sumTemp = sumTemp + intermTemp;
-		if(i == 2){sumTemp = sumTemp + intermTemp;}
-		if(i == 3){sumTemp = sumTemp + intermTemp;}
 	}
 
 	signalMean = (sumTemp/128); // dividing by 128, same as right-shifting 7 bit places
-	
+	//signalMean = sumTemp;
+
 	return signalMean;
 }
 
-long AverageRMS(volatile long *vecArray, volatile int upperBound)
+long AverageRMS(volatile unsigned long *vecArray, volatile int upperBound)
 {
 	int i = 0;
 	runningRmsAverage = 0;
+	sumTemp = 0;
 	for(i = 0; i < BLOCK_LENGTH; i++)
 	{
-		runningRmsAverage = runningRmsAverage + vecArray[i];
+		sumTemp = vecArray[i];
+		sumTemp = sumTemp/upperBound;
+		runningRmsAverage = runningRmsAverage + sumTemp;
 	}
 
-	cycleRmsAverage = (runningRmsAverage/128); // dividing by 128, same as right-shifting 7 bits
-
-	return cycleRmsAverage;
+	//cycleRmsAverage = (runningRmsAverage/upperBound); // dividing by 128, same as right-shifting 7 bits
+	cycleRmsAverage = runningRmsAverage;
+	return runningRmsAverage;
 }
