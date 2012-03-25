@@ -14,14 +14,10 @@ binThreshold = 0;
 
 while(inputFine == 0)
     userThreshold = input('Input the upper threshold: ');
-    if(userThreshold >= 5)
+    if(userThreshold > 2^32-1)
         fprintf('That number is too big. Try again.\n');
     else
-        convertFactor = 5/(2^32-1);
-        binThreshold = userThreshold/convertFactor;
-        binThreshold = floor(binThreshold/4);
-        disp(binThreshold);
-        binThreshold = dec2bin(binThreshold,32);
+        binThreshold = dec2bin(userThreshold,32);
         inputFine = 1;
     end
 end
@@ -42,7 +38,7 @@ drawnow
 
 agilentObj = 1; % dummy object for debugging without using agilent AWG
 
-%{
+%%{
 % Connect to function generator
 if(~exist('agilentInterfaceObj','var'))
     agilentInterfaceObj = visa('AGILENT','USB0::2391::1031::MY44006969::0::INSTR');
@@ -70,7 +66,7 @@ picObject.Timeout = 1;
 callbackOn = 0;
 
 fopen(picObject);
-%fwrite(picObject,'r','uint8'); % have the controller reset itself
+fwrite(picObject,'r','uint8'); % have the controller reset itself
 
 callbackData = zeros(1,dataPlotLength+2);
 callbackData(2:dataPlotLength+1) = dataToPlot;
@@ -90,33 +86,64 @@ handshakeComplete = 0;
 % confirm reception. If this fails during any of the four byte transfers,
 % the whole handshake is restarted. 
 while(handshakeComplete == 0)
+    flushinput(picObject);
     fwrite(picObject,'c','uint8');
     picResponse = fread(picObject,1,'uint8');
-    if((picResponse ~= 'c') || (isempty(picResponse)))
+    if(isempty(picResponse))
+        fwrite(picObject,'r','uint8'); % have the controller reset itself
+        pause(1);
+        continue
+    elseif(picResponse ~= 'c')
+        fwrite(picObject,'r','uint8'); % have the controller reset itself
+        pause(1);
         continue
     end
     
     fwrite(picObject,highByteThreshold,'uint8');
     picResponse = fread(picObject,1,'uint8');
-    if((picResponse ~= 'k') || (isempty(picResponse)))
+    if(isempty(picResponse))
+        fwrite(picObject,'r','uint8'); % have the controller reset itself
+        pause(1);
+        continue
+    elseif(picResponse ~= 'k')
+        fwrite(picObject,'r','uint8'); % have the controller reset itself
+        pause(1);
         continue
     end
     
     fwrite(picObject,upmidByteThreshold,'uint8');
     picResponse = fread(picObject,1,'uint8');
-    if((picResponse ~= 'k') || (isempty(picResponse)))
+    if(isempty(picResponse))
+        fwrite(picObject,'r','uint8'); % have the controller reset itself
+        pause(1);
+        continue
+    elseif(picResponse ~= 'k')
+        fwrite(picObject,'r','uint8'); % have the controller reset itself
+        pause(1);
         continue
     end
     
     fwrite(picObject,lowmidByteThreshold,'uint8');
     picResponse = fread(picObject,1,'uint8');
-    if((picResponse ~= 'k') || (isempty(picResponse)))
+    if(isempty(picResponse))
+        fwrite(picObject,'r','uint8'); % have the controller reset itself
+        pause(1);
+        continue
+    elseif(picResponse ~= 'k')
+        fwrite(picObject,'r','uint8'); % have the controller reset itself
+        pause(1);
         continue
     end
     
     fwrite(picObject,lowByteThreshold,'uint8');
     picResponse = fread(picObject,1,'uint8');
-    if((picResponse ~= 'k') || (isempty(picResponse)))
+    if(isempty(picResponse))
+        fwrite(picObject,'r','uint8'); % have the controller reset itself
+        pause(1);
+        continue
+    elseif(picResponse ~= 'k')
+        fwrite(picObject,'r','uint8'); % have the controller reset itself
+        pause(1);
         continue
     end
     
@@ -168,36 +195,36 @@ if(serialID == -1) % if the next transmission is a command
     %if the received command is to raise the amplitude, increase
     %it by 10 mVpp
     if(receivedCommand == 'r')
-        %currentAmp = get(agilentObject,'Amplitude');
-        %currentAmp = currentAmp + .01;
-        %set(agilentObject, 'Amplitude', currentAmp);
+        currentAmp = get(agilentObject,'Amplitude');
+        currentAmp = currentAmp + .01;
+        set(agilentObject, 'Amplitude', currentAmp);
         fprintf('\nRaise Voltage\n\n');
     %if the received command is to lower the amplitude, decrease
     %it by 10 mVpp
     elseif(receivedCommand == 'l')
-        %currentAmp = get(agilentObject,'Amplitude');
-        %currentAmp = currentAmp - .01;
-        %set(agilentObject, 'Amplitude', currentAmp);
+        currentAmp = get(agilentObject,'Amplitude');
+        currentAmp = currentAmp - .01;
+        set(agilentObject, 'Amplitude', currentAmp);
         fprintf('\nLower Voltage\n\n');
     %if the received command is notifying of an "emergency" that the
     %emissions have hit a threshold with a significant probability of 
     %causing vessel rupture, low the amplitude by 100 mVpp
     elseif(receivedCommand == 'e')
-        %currentAmp = get(agilentObject,'Amplitude');
-        %currentAmp = currentAmp - .1;
-        %set(agilentObject, 'Amplitude', currentAmp);
+        currentAmp = get(agilentObject,'Amplitude');
+        currentAmp = currentAmp - .1;
+        set(agilentObject, 'Amplitude', currentAmp);
         fprintf('\nLower Voltage\n\n');
     elseif(receivedCommand == 's')
         %The command was to remain at the current voltage level. Do nothing
         fprintf('Staying...\n');
     %if an unknown command was received, give a notification 
     elseif(receivedCommand == 'a')
-        %set(agilentObject,'Output','Off');
+        set(agilentObject,'Output','Off');
         fprintf('Function Generator Off\n');
         fwrite(picObject,'q','uint8'); % send dummy character to controller
                            % so it knows AWG was turned off
     elseif(receivedCommand == 'n')
-        %set(agilentObject,'Output','On');
+        set(agilentObject,'Output','On');
         fprintf('Function Generator On\n');
         fwrite(picObject,'p','uint8'); % send dummy character to controller
                            % so it knows AWG was turned on

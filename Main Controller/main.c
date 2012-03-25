@@ -64,6 +64,7 @@ volatile char receiveCount = 0; // when doing initial handshaking with computer,
 volatile char receivingThreshold = 0; // flag to keep track of when the threshold
 									// voltage is being received from computer
 volatile char firstCycle = 1; // flag to tell when the first sonication is done
+volatile char spiSuccessfullyReceived = 0;
 
 long upperRmsBound = 0;
 int cycleCount = 0; // counts the number of cycles that have passed without
@@ -126,6 +127,7 @@ void main(void)
 		}
 	} 
 	T1CONbits.TON = 1;
+	spiSuccessfullyReceived = 1;
 
 	while(1)
 	{
@@ -138,8 +140,6 @@ void main(void)
 				allOn = 0;
 				spiIndex = 0;	
 				SPI1STATbits.SPIEN = 0; // disable SPI module
-				tempindex = SPI1BUF; // clear the SPI buffer
-				SPI1BUF = 0;
 				//*
 				while(U1STAbits.TRMT == 0){}
 				U1TXREG = sendCommand; // let the computer know the next byte is a command
@@ -225,6 +225,8 @@ void main(void)
 
 			if(rmsFlag == 1)	
 			{
+				IEC1bits.INT1IE = 0; // disable INT1 interrupt
+				SPI1STATbits.SPIEN = 0; // disable SPI module
 				rmsFlag = 0;
 				LATBbits.LATB1 = 1;
 				vecPow = SignalRMS(&spiIn[0]);
@@ -281,7 +283,8 @@ void main(void)
 					}
 				}
 				//*/
-
+				IEC1bits.INT1IE = 1; // enable INT1 interrupt
+				SPI1STATbits.SPIEN = 1; // enable SPI module
 				LATBbits.LATB1 = 0;
 				lowerFlag = 0;
 			}	
@@ -310,19 +313,6 @@ void __attribute__((__interrupt__,no_auto_psv)) _T1Interrupt(void)
 			allClear = 0;
 		}
 	}
-	return;
-}
-
-void __attribute__((__interrupt__,no_auto_psv)) _INT1Interrupt(void)
-{
-	LATEbits.LATE2 = 1;
-	IFS1bits.INT1IF = 0; // clear interrupt flag
-	SPI1STATbits.SPIEN = 0;
-	asm("nop");
-	SPI1STATbits.SPIEN = 1;// enable SPI module
-	tempindex = SPI1BUF; // ensure the SPI buffer is cleared
-	SPI1BUF = 0;
-	LATEbits.LATE2 = 0;
 	return;
 }
 
@@ -377,17 +367,48 @@ void __attribute__((__interrupt__,no_auto_psv)) _U1RXInterrupt(void)
 	return;
 }
 
+void __attribute__((__interrupt__,no_auto_psv)) _INT1Interrupt(void)
+{
+	LATEbits.LATE2 = 1;
+	IFS1bits.INT1IF = 0; // clear interrupt flag
+	IFS0bits.SPI1IF = 0; // clear the SPI interrupt flag
+	IEC0bits.SPI1IE = 1; // SPI1 interrupts enabled
+	asm("nop");
+	if(spiSuccessfullyReceived == 1){} // proper SPI transmission after last flag
+	else
+	{
+		tempindex = SPI1BUF;
+		spiIn[spiIndex] = 0;
+		spiIn[spiIndex] = spiIn[spiIndex]+ (long)tempindex;	
+		if(spiIn[spiIndex] > 5600){LATEbits.LATE3 = 1;LATEbits.LATE3 = 0;}
+		if(spiIn[spiIndex] < -5600){LATEbits.LATE3 = 1;LATEbits.LATE3 = 0;}
+		spiIndex++;
+		if(spiIndex >= 128)
+		{
+		    spiIndex = 0;
+			rmsFlag = 1;
+		}
+	}
+	SPI1BUF = 0;
+	LATEbits.LATE2 = 0;
+	spiSuccessfullyReceived = 0;
+	SPI1STATbits.SPIEN = 0; // reset the SPI module
+	SPI1STATbits.SPIEN = 1; 
+	return;
+}
+
 void __attribute__((__interrupt__,no_auto_psv)) _SPI1Interrupt(void)
 {
 	SPI1STATbits.SPIEN = 0; // disable SPI module
 	IFS0bits.SPI1IF = 0; // clear the SPI interrupt flag
 	LATEbits.LATE0 = 1;
-	tempindex = -5600;//SPI1BUF;
+	tempindex = SPI1BUF;
 	spiIn[spiIndex] = 0;
 	spiIn[spiIndex] = spiIn[spiIndex]+ (long)tempindex;	
-	//if(spiIn[spiIndex] > 5600){LATEbits.LATE3 = 1;LATEbits.LATE3 = 0;}
-	//if(spiIn[spiIndex] < -5600){LATEbits.LATE3 = 1;LATEbits.LATE3 = 0;}
+	if(spiIn[spiIndex] > 5600){LATEbits.LATE3 = 1;LATEbits.LATE3 = 0;}
+	if(spiIn[spiIndex] < -5600){LATEbits.LATE3 = 1;LATEbits.LATE3 = 0;}
 	spiIndex++;
+	spiSuccessfullyReceived = 1;
 	if(spiIndex >= 128)
 	{
 	    spiIndex = 0;
@@ -411,6 +432,7 @@ void __attribute__((__interrupt__,no_auto_psv)) _SPI1Interrupt(void)
 		}
 	}
 	//*/
+	
 	return;
 }
 
